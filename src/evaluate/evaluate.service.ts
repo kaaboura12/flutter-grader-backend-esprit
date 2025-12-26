@@ -211,10 +211,14 @@ export class EvaluateService {
           testsPassed: testResult.success,
           groqEvaluation: {
             score: groqScore,
-            feedback: groqResult.feedback,
+            summary: groqResult.summary,
+            strengths: groqResult.strengths,
+            weaknesses: groqResult.weaknesses,
+            recommendations: groqResult.recommendations,
           },
         },
-        groqResult.feedback,
+        groqResult.summary,
+        groqResult.summary,
       );
     } catch (error) {
       this.logger.error(`Evaluation error: ${error.message}`, error.stack);
@@ -423,7 +427,13 @@ export class EvaluateService {
   private async evaluateWithGroq(
     files: Array<{ path: string; content: string }>,
     maxAvailableScore: number,
-  ): Promise<{ score: number; feedback: string }> {
+  ): Promise<{
+    score: number;
+    summary: string;
+    strengths?: string[];
+    weaknesses?: string[];
+    recommendations?: string;
+  }> {
     const groqApiKey = this.configService.get<string>('GROQ_API_KEY');
 
     if (!groqApiKey) {
@@ -446,20 +456,22 @@ Here is the code:
 
 ${codeContent}
 
-Please provide:
-1. A numerical score out of ${maxAvailableScore} based on:
-   - Code quality and structure
-   - Implementation of requirements (Add todo, Delete todo, Mark todo as complete)
-   - Best practices and Flutter conventions
-   - Error handling
-   - Code organization
+Evaluate based on:
+- Code quality and structure
+- Implementation of requirements (Add todo, Delete todo, Mark todo as complete)
+- Best practices and Flutter conventions
+- Error handling
+- Code organization
 
-2. Detailed feedback on what was done well and what could be improved.
+Provide a CONCISE evaluation. Keep responses brief and to the point.
 
-Respond in the following JSON format:
+Respond in the following JSON format (keep text fields short - max 200 characters each):
 {
   "score": <number between 0 and ${maxAvailableScore}>,
-  "feedback": "<detailed feedback text>"
+  "summary": "<brief overall summary in 2-3 sentences>",
+  "strengths": ["<brief point 1>", "<brief point 2>"],
+  "weaknesses": ["<brief point 1>", "<brief point 2>"],
+  "recommendations": "<brief recommendation in 1-2 sentences>"
 }`;
 
     try {
@@ -474,7 +486,7 @@ Respond in the following JSON format:
           ],
           model: 'openai/gpt-oss-120b',
           temperature: 0.3,
-          max_completion_tokens: 4096,
+          max_completion_tokens: 800,
           top_p: 1,
           stream: false,
         },
@@ -506,14 +518,30 @@ Respond in the following JSON format:
         const extractedScore = scoreMatch ? parseInt(scoreMatch[1]) : 0;
         return {
           score: Math.min(Math.max(extractedScore, 0), maxAvailableScore),
-          feedback: result.substring(0, 1000), // Limit feedback length
+          summary: result.substring(0, 200) || 'Evaluation completed',
+          strengths: [],
+          weaknesses: [],
+          recommendations: '',
         };
       }
 
       const score = Math.min(Math.max(parseInt(parsed.score) || 0, 0), maxAvailableScore);
-      const feedback = parsed.feedback || 'No feedback provided';
+      const summary = (parsed.summary || parsed.feedback || 'No summary provided').substring(0, 300);
+      const strengths = Array.isArray(parsed.strengths) 
+        ? parsed.strengths.map((s: string) => String(s).substring(0, 150)).slice(0, 5)
+        : [];
+      const weaknesses = Array.isArray(parsed.weaknesses)
+        ? parsed.weaknesses.map((w: string) => String(w).substring(0, 150)).slice(0, 5)
+        : [];
+      const recommendations = (parsed.recommendations || '').substring(0, 200);
 
-      return { score, feedback };
+      return {
+        score,
+        summary,
+        strengths,
+        weaknesses,
+        recommendations,
+      };
     } catch (error: any) {
       this.logger.error(`Groq evaluation failed: ${error.message}`, {
         status: error.response?.status,
@@ -524,7 +552,10 @@ Respond in the following JSON format:
       // Return default score if Groq fails
       return {
         score: 0,
-        feedback: `Groq evaluation failed: ${error.response?.data?.error?.message || error.message}`,
+        summary: `Evaluation failed: ${error.response?.data?.error?.message || error.message}`,
+        strengths: [],
+        weaknesses: [],
+        recommendations: '',
       };
     }
   }
@@ -535,12 +566,14 @@ Respond in the following JSON format:
     checks: CheckResult[],
     details: any,
     feedback?: string,
+    summary?: string,
   ): EvaluateResponseDto {
     return {
       totalScore,
       maxScore,
       checks,
       feedback,
+      summary: summary || feedback,
       details,
     };
   }

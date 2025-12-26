@@ -5,21 +5,27 @@ export class CheckResult {
   score?: number;
 }
 
+export class GroqEvaluationSummary {
+  score: number;
+  summary: string;
+  strengths?: string[];
+  weaknesses?: string[];
+  recommendations?: string;
+}
+
 export class EvaluateResponseDto {
   totalScore: number;
   maxScore: number;
   checks: CheckResult[];
   feedback?: string;
+  summary?: string; // Main summary for frontend display
   details?: {
     cloneSuccessful: boolean;
     filesValid: boolean;
     pubGetSuccessful: boolean;
     buildSuccessful: boolean;
     testsPassed: boolean;
-    groqEvaluation?: {
-      score: number;
-      feedback: string;
-    };
+    groqEvaluation?: GroqEvaluationSummary;
   };
 }
 
